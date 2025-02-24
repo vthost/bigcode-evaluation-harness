@@ -317,7 +317,7 @@ def complete_code(
                         out = extract_model_data(cont, index, inplen, contlen, model.config)  # VT TODO torch.save(list of these out, one for each sample)
                         out.update({"batch_index": step})
                         all_outputs.append(out)
-                        print(type(out))
+                        #print(type(out))
                     except ValueError as e:
                         # When the length of input_ids == max_length, the generation is the same as the input
                         if str(e).startswith(f"Input length of input_ids is {inputs.shape[1]}, but `max_length` is set to {gen_kwargs['max_length']}"):
@@ -376,6 +376,10 @@ def complete_code(
         gen_token_dict,
     )
 
+    # append generations to each dict in all_outputs - not the best way but works for now
+    for i in range(len(all_outputs)):
+        all_outputs[i].update({"generation": code_gens[i]})
+        
     generations.extend(code_gens)
     return generations, all_outputs
 
