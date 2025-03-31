@@ -58,6 +58,7 @@ class Evaluator:
             if "get_solution" in inspect.signature(task.get_reference).parameters:
                 solutions = [[task.get_reference(dataset[i], get_solution=True)] for i in range(self.args.limit_start, self.args.limit_start+n_tasks)]
             else:
+                ##TODO: Santacoder reference add tests
                 solutions = [[ref] for ref in references]
             return solutions, references
 
@@ -107,7 +108,7 @@ class Evaluator:
                 os.environ["HF_ALLOW_CODE_EVAL"] = "1"
             print("Evaluating generations...")
 
-            if task_name in ["humanevalplus", "mbppplus"]:
+            if task_name in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim"]:
                 results , correctness  = task.process_results(generations, references)  # Unpack (results, correctness)
                 return results , correctness
             else:

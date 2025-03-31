@@ -263,7 +263,7 @@ def main():
         evaluator = Evaluator(accelerator, None, None, args)
         for task in task_names:
             # results[task] = evaluator.evaluate(task)
-            if task in ["humanevalplus", "mbppplus"]:
+            if task in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim"]:
                 # These tasks return (results, correctness)
                 results[task], correctness = evaluator.evaluate(task)
             else:
@@ -415,17 +415,13 @@ def main():
                         args.save_model_stats_path,
                     )
             else:
-                if task in ["humanevalplus", "mbppplus"]:
+                if task in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim"]:
                     # These tasks return (results, correctness)
                     results[task], correctness = evaluator.evaluate(
                         task, intermediate_generations=intermediate_generations
                     )
                     #TODO: Need to rewrite for n_samples>1
-                    task_pass_status = {
-                        task_id: any(entry[1]['passed'] for entry in entries)
-                        for task_id, entries in correctness.items()
-                    }
-                    results["task_pass_status"]=task_pass_status
+                    results["correct"]=correctness
                 else:
                     # These tasks return results only
                     results[task] = evaluator.evaluate(

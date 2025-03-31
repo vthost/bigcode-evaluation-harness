@@ -4,6 +4,8 @@ from tqdm import tqdm
 
 from bigcode_eval.base import Task
 
+from collections import defaultdict
+
 _CITATION = """
 @article{allal2023santacoder,
   title={SantaCoder: don't reach for the stars!},
@@ -73,7 +75,11 @@ class SantaCoderFIM(Task):
     def get_dataset(self):
         """Returns dataset for the task or an iterable of any object, that get_prompt can handle"""
         dataset = self.dataset["train"]
-        return dataset
+        
+        # Filter only Python examples
+        py_dataset = [doc for doc in dataset if doc["language"] == "py"]
+        return py_dataset
+        # return dataset
 
     def get_prompt(self, doc):
         """Builds the prompt for the LM to generate from."""
@@ -104,18 +110,37 @@ class SantaCoderFIM(Task):
         :param references: list(str)
             list of str containing refrences
         :return: dict[str: float]
+        
+        Evaluates generations against references and returns:
+        - aggregated metrics per language
+        - per-sample exact match info for optional deeper analysis
         """
         metrics = initialize_empty_metrics(LANGUAGES)
+        exact_match_results = defaultdict(list)  # {task_id: [ (completion_id, result_dict), ... ]}
         for idx, (gen, reference) in tqdm(enumerate(zip(generations, references))):
             language = self.get_dataset()[idx]["language"]
-            for g in gen:
-                metrics[f"n_accurate_{language}"] += int(g.strip() == reference.strip())
+            # for g in gen:
+            #     metrics[f"n_accurate_{language}"] += int(g.strip() == reference.strip())
+            for completion_id, g in enumerate(gen):
+                exact = int(g.strip() == reference.strip())
+                metrics[f"n_accurate_{language}"] += exact
+
+                result_info = {
+                    "task_id": idx,
+                    "completion_id": completion_id,
+                    "exact_match": exact
+                }
+
+                exact_match_results[idx].append((completion_id, result_info))
+
 
             metrics[f"n_count_{language}"] += len(gen)
 
         em_metrics = aggregate_per_lang_accuracy(metrics, LANGUAGES)
 
-        return em_metrics
+        return em_metrics, exact_match_results
+
+    # return em_metrics
 
 
 class StarCoderFIM(SantaCoderFIM):
