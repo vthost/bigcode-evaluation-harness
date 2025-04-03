@@ -1,9 +1,10 @@
-import os
 import fnmatch
 import json
+import os
 import warnings
 
 import datasets
+import numpy as np
 import torch
 import transformers
 from accelerate import Accelerator
@@ -48,6 +49,11 @@ def parse_args():
         "--save_model_stats_path",
         default="./stats.pt",
         help="Location to save model evaluation information to use for uncertainty evaluation",
+    )
+    parser.add_argument(
+        "--save_input_len_path",
+        default="./input_len_dict.json",
+        help="Location to save input_len information to use for uncertainty evaluation specifically tokensar",
     )
     parser.add_argument(
         "--modeltype",
@@ -371,7 +377,7 @@ def main():
         WIZARD_LLAMA_MODELS = [
             "WizardLM/WizardCoder-Python-34B-V1.0",
             "WizardLM/WizardCoder-34B-V1.0",
-            "WizardLM/WizardCoder-Python-13B-V1.0"
+            "WizardLM/WizardCoder-Python-13B-V1.0",
         ]
         if args.model in WIZARD_LLAMA_MODELS:
             tokenizer.bos_token = "<s>"
@@ -380,10 +386,9 @@ def main():
 
         evaluator = Evaluator(accelerator, model, tokenizer, args)
 
-        if (
+        if args.load_generations_intermediate_paths and len(
             args.load_generations_intermediate_paths
-            and len(args.load_generations_intermediate_paths) != len(task_names)
-        ):
+        ) != len(task_names):
             raise ValueError(
                 "If passing --load_generations_intermediate_paths, \
                 must pass equal number of files as number of tasks"
@@ -404,7 +409,9 @@ def main():
                     task, intermediate_generations=intermediate_generations
                 )
                 if accelerator.is_main_process:
-                    save_generations_path = f"{os.path.splitext(args.save_generations_path)[0]}_{task}.json"
+                    save_generations_path = (
+                        f"{os.path.splitext(args.save_generations_path)[0]}_{task}.json"
+                    )
                     save_references_path = f"references_{task}.json"
                     evaluator.save_json_files(
                         generations,
@@ -417,21 +424,35 @@ def main():
             else:
                 if task in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim"]:
                     # These tasks return (results, correctness)
-                    results[task], correctness = evaluator.evaluate(
+                    results[task], correctness, range_dict = evaluator.evaluate(
                         task, intermediate_generations=intermediate_generations
                     )
-                    #TODO: Need to rewrite for n_samples>1
+
+                    # Convert defaultdict to a regular dict
+                    regular_dict = {
+                        int(k): [
+                            (int(input_len), int(cont_len)) for input_len, cont_len in v
+                        ]
+                        for k, v in range_dict.items()
+                    }
+
+                    # Specify the file path where you want to save the JSON
+                    file_path = f"{args.save_input_len_path}_{task}.json"
+
+                    # Save the regular dict to a JSON file
+                    with open(file_path, "w") as json_file:
+                        json.dump(regular_dict, json_file, indent=4)
+
+                    # TODO: Need to rewrite for n_samples>1
                     results["correct"]=correctness
                 else:
                     # These tasks return results only
                     results[task] = evaluator.evaluate(
                         task, intermediate_generations=intermediate_generations
                     )
-                
                 # results[task] = evaluator.evaluate(
                 #     task, intermediate_generations=intermediate_generations
                 # )
-                
     # Save all args to config
     results["config"] = vars(args)
     if not args.generation_only:
