@@ -247,8 +247,8 @@ def main():
 
     # @UMASS use these for now
     args.batch_size = 1
-    args.do_sample = False
-    args.temperature = 0
+    args.do_sample = True
+    args.temperature = 1
     args.save_generations = 1
     args.allow_code_execution = 1
 
