@@ -247,8 +247,8 @@ def main():
 
     # @UMASS use these for now
     args.batch_size = 1
-    args.do_sample = False
-    args.temperature = 0
+    args.do_sample = True
+    args.temperature = 1
     args.save_generations = 1
     args.allow_code_execution = 1
 
@@ -268,10 +268,20 @@ def main():
             print("evaluation only mode")
         evaluator = Evaluator(accelerator, None, None, args)
         for task in task_names:
-            # results[task] = evaluator.evaluate(task)
-            if task in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim"]:
-                # These tasks return (results, correctness)
-                results[task], correctness = evaluator.evaluate(task)
+            # Adding execution based correctness to following tasks {passed:true when generation passes it's unit-test}
+            if task in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim","deepseek_coder_fim"]:
+                # Adding execution and exact_match results to a dict for FIM Tasks
+                if task  in ["starcoder_fim","deepseek_coder_fim","santacoder_fim"]:
+                    results[task], correctness, em_metric, em_correctness = evaluator.evaluate(task)
+                    results[task].update(em_metric)
+                    for task_id, pass_list in correctness.items():
+                            exact_list = em_correctness.get(task_id, [])
+                            # zip them together so you only loop once
+                            for (cid_pass, pass_info), (_, exact_info) in zip(pass_list, exact_list):
+                                pass_info["exact_match"] = exact_info["exact_match"]
+                else:
+                    results[task], correctness = evaluator.evaluate(task)
+                
             else:
                 # These tasks return results only
                 results[task] = evaluator.evaluate(task)
@@ -422,11 +432,26 @@ def main():
                         args.save_model_stats_path,
                     )
             else:
-                if task in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim"]:
-                    # These tasks return (results, correctness)
-                    results[task], correctness, range_dict = evaluator.evaluate(
-                        task, intermediate_generations=intermediate_generations
-                    )
+                # Adding execution based correctness to following tasks {passed:true when generation passes it's unit-test}
+                if task in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim","deepseek_coder_fim"]:
+                    # Adding execution and exact_match results to a dict for FIM Tasks
+                    if task in ["starcoder_fim","deepseek_coder_fim","santacoder_fim"]:
+
+                        results[task], correctness, em_metric, em_correctness, range_dict = evaluator.evaluate(
+                                task, intermediate_generations=intermediate_generations
+                            )
+                        results[task].update(em_metric)
+                        for task_id, pass_list in correctness.items():
+                            exact_list = em_correctness.get(task_id, [])
+                            # zip them together so you only loop once
+                            for (cid_pass, pass_info), (_, exact_info) in zip(pass_list, exact_list):
+                                pass_info["exact_match"] = exact_info["exact_match"]
+
+                    else:
+
+                        results[task], correctness, range_dict = evaluator.evaluate(
+                            task, intermediate_generations=intermediate_generations
+                        )
 
                     # Convert defaultdict to a regular dict
                     regular_dict = {
@@ -443,16 +468,13 @@ def main():
                     with open(file_path, "w") as json_file:
                         json.dump(regular_dict, json_file, indent=4)
 
-                    # TODO: Need to rewrite for n_samples>1
+                   
                     results["correct"]=correctness
                 else:
                     # These tasks return results only
                     results[task] = evaluator.evaluate(
                         task, intermediate_generations=intermediate_generations
                     )
-                # results[task] = evaluator.evaluate(
-                #     task, intermediate_generations=intermediate_generations
-                # )
     # Save all args to config
     results["config"] = vars(args)
     if not args.generation_only:

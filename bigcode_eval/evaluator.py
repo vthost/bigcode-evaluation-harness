@@ -107,18 +107,23 @@ class Evaluator:
             if self.allow_code_execution and task.requires_execution:
                 os.environ["HF_ALLOW_CODE_EVAL"] = "1"
             print("Evaluating generations...")
+            
+            #For Execution-based Tasks
+            #populate correctness {passed:true} if generation passes its unit-tests
+            if task_name in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim","deepseek_coder_fim"]:
 
-            if task_name in ["humanevalplus", "mbppplus","santacoder_fim","starcoder_fim"]:
-                results , correctness  = task.process_results(generations, references)  # Unpack (results, correctness)
+                #Adding Exact_match results 
+                if task_name in ["starcoder_fim","deepseek_coder_fim","santacoder_fim"]:
+                    results , correctness, em_metric, em_correctness  = task.process_results_execution(generations, references)  # Unpack (results, correctness)
+                    return results , correctness, em_metric, em_correctness, input_len_dict  
+                else:
+                    results , correctness  = task.process_results(generations, references)  # Unpack (results, correctness)
                 return results , correctness, input_len_dict
             else:
                 # Otherwise just return results
                 results = task.process_results(generations, references)
                 return results
-            # results , correctness  = task.process_results(generations, references)
-            # return results , correctness
-            # results  = task.process_results(generations, references)
-            # return results
+            
 
     def save_json_files(
         self,

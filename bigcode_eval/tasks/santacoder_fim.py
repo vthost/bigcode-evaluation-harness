@@ -5,6 +5,7 @@ from tqdm import tqdm
 from bigcode_eval.base import Task
 
 from collections import defaultdict
+from bigcode_eval.tasks.custom_metrics.code_eval import compute_code_eval
 
 _CITATION = """
 @article{allal2023santacoder,
@@ -26,6 +27,7 @@ def create_all_tasks():
     return {
         "santacoder_fim": SantaCoderFIM,
         "starcoder_fim": StarCoderFIM,
+        "deepseek_coder_fim": DeepSeekCoderFIM,
     }
 
 
@@ -76,18 +78,23 @@ class SantaCoderFIM(Task):
         """Returns dataset for the task or an iterable of any object, that get_prompt can handle"""
         dataset = self.dataset["train"]
         
+        #TODO: Add for other languages
+
         # Filter only Python examples
         py_dataset = [doc for doc in dataset if doc["language"] == "py"]
         return py_dataset
-        # return dataset
+       
 
     def get_prompt(self, doc):
         """Builds the prompt for the LM to generate from."""
         return f"""{self.fim_prefix}{doc["prompt"]}{self.fim_suffix}{doc["suffix"]}{self.fim_middle}"""
-
+        
+        
     def get_reference(self, doc):
         """Builds the reference solution for the doc (sample from the test dataset)."""
-        return doc["canonical_solution"]
+        # return doc["canonical_solution"]
+        # Gets corresponding Unit-tests for execution based correctness
+        return doc["tests"]
 
     def postprocess_generation(self, generation, idx):
         """Defines the postprocessing for a LM generation.
@@ -119,6 +126,7 @@ class SantaCoderFIM(Task):
         exact_match_results = defaultdict(list)  # {task_id: [ (completion_id, result_dict), ... ]}
         for idx, (gen, reference) in tqdm(enumerate(zip(generations, references))):
             language = self.get_dataset()[idx]["language"]
+            
             # for g in gen:
             #     metrics[f"n_accurate_{language}"] += int(g.strip() == reference.strip())
             for completion_id, g in enumerate(gen):
@@ -140,7 +148,59 @@ class SantaCoderFIM(Task):
 
         return em_metrics, exact_match_results
 
-    # return em_metrics
+    
+    def process_results_execution(self, generations, references):
+        """Similar to above process_results , but also run the tests via compute_code_eval()
+            build all_programs = [[prefix+g+suffix for g in gen_list], ...]
+            then call compute_code_eval(references=all_tests, predictions=all_programs, timeout=10)
+            finally return (exec_results, exec_correctness, em_metrics, exact_match_results)
+        """
+        all_programs = []
+        all_tests    = []
+        metrics = initialize_empty_metrics(LANGUAGES)
+        exact_match_results = defaultdict(list)
+        for idx, (gen, reference) in tqdm(enumerate(zip(generations, references))):
+            language = self.get_dataset()[idx]["language"]
+            prefix = self.get_dataset()[idx]["prompt"]
+            suffix = self.get_dataset()[idx]["suffix"]
+            canonical_solution = self.get_dataset()[idx]["canonical_solution"]
+            programs_of_gen = []
+            
+            print(gen,canonical_solution)
+            for completion_id, g in enumerate(gen):
+                programs_of_gen.append(prefix + g + suffix)
+
+                exact = int(g.strip() == canonical_solution.strip())
+                metrics[f"n_accurate_{language}"] += exact
+
+                result_info = {
+                    "task_id": idx,
+                    "completion_id": completion_id,
+                    "exact_match": exact
+                }
+
+                exact_match_results[idx].append((completion_id, result_info))
+            
+            metrics[f"n_count_{language}"] += len(gen)
+            
+
+            all_programs.append(programs_of_gen)
+            test_suite = self.get_dataset()[idx]["tests"]
+            all_tests.append(test_suite)
+
+        em_metrics = aggregate_per_lang_accuracy(metrics, LANGUAGES)
+        # print(em_metrics)
+        
+        # TODO: currently does execution of python based codes - need to add it for js and java languages
+        results, execution_correctness = compute_code_eval(
+            references=all_tests,
+            predictions=all_programs,
+            timeout=10.0,  # 10s timeout
+        )
+       
+        
+        return results, execution_correctness, em_metrics, exact_match_results
+        
 
 
 class StarCoderFIM(SantaCoderFIM):
@@ -150,11 +210,32 @@ class StarCoderFIM(SantaCoderFIM):
         fim_prefix = "<fim_prefix>"
         fim_middle = "<fim_middle>"
         fim_suffix = "<fim_suffix>"
-        stop_words = ["<|endoftext|>", "<|filename|>", "<file_sep>"]
+
+        stop_words = ["<|endoftext|>","<|filename|>", "<file_sep>"]
         super().__init__(
             stop_words=stop_words,
-            requires_execution=False,
+            requires_execution=True,
             fim_prefix=fim_prefix,
             fim_middle=fim_middle,
             fim_suffix=fim_suffix,
         )
+
+class DeepSeekCoderFIM(SantaCoderFIM):
+    DATASET_PATH = "bigcode/santacoder-fim-task"
+
+    def __init__(self):
+        super().__init__(
+            fim_prefix="<｜fim▁start｜>",
+            fim_middle="<｜fim▁hole｜>",
+            fim_suffix="<｜fim▁end｜>",
+            stop_words=["<|endoftext|>", "<｜eos_token｜>"],
+            requires_execution=True,
+        )
+
+    def get_prompt(self, doc):
+
+        """Builds the prompt for the LM to generate from."""
+        return f"""{self.fim_prefix}{doc["prompt"]}{self.fim_middle}{doc["suffix"]}{self.fim_suffix}"""
+
+
+       
